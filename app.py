@@ -12,19 +12,22 @@ st.title("📊 Polymarket Arbitrage Dashboard")
 # --------------------
 # AUTO-REFRESH
 # --------------------
-# Refresh every 10 seconds
 st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 
 # --------------------
 # INPUTS
 # --------------------
 trade_amount = st.number_input("Enter trade amount ($)", min_value=1, value=50)
-telegram_alerts = st.checkbox("Enable Telegram Alerts")
 
-# Telegram credentials (only if alerts enabled)
-if telegram_alerts:
-    telegram_token = st.text_input("Telegram Bot Token", type="password")
-    telegram_chat_id = st.text_input("Telegram Chat ID")
+# --------------------
+# TELEGRAM SECRETS
+# --------------------
+try:
+    telegram_token = st.secrets["telegram"]["bot_token"]
+    telegram_chat_id = st.secrets["telegram"]["chat_id"]
+    telegram_enabled = True
+except:
+    telegram_enabled = False
 
 # --------------------
 # HELPER FUNCTIONS
@@ -34,7 +37,7 @@ def highlight_profit(val):
     return f'background-color: {color}'
 
 def send_telegram(message):
-    if telegram_alerts and telegram_token and telegram_chat_id:
+    if telegram_enabled:
         url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
         try:
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
@@ -74,7 +77,7 @@ for market in markets:
             "Trade Link": f"https://polymarket.com/event/{market.get('slug','')}"
         })
 
-        # Telegram alert if profitable
+        # Send Telegram alert if profitable
         if profit > 0:
             msg = f"Profitable trade!\nMarket: {market.get('question','Unknown')}\nProfit: {profit}\nTrade Link: https://polymarket.com/event/{market.get('slug','')}"
             send_telegram(msg)
