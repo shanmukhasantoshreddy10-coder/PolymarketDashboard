@@ -3,18 +3,28 @@ import pandas as pd
 import requests
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
+from zoneinfo import ZoneInfo  # for ET timezone
 
+# --------------------
+# CONFIG
+# --------------------
 st.set_page_config(page_title="Polymarket Dashboard", layout="wide")
 st.title("📊 Polymarket Arbitrage Dashboard")
 
-# Auto-refresh every 10 seconds
+# --------------------
+# AUTO-REFRESH
+# --------------------
 st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 
-# Inputs
+# --------------------
+# INPUTS
+# --------------------
 trade_amount = st.number_input("Enter trade amount ($)", min_value=1, value=50)
 min_profit_alert = st.slider("Minimum Profit for Telegram Alerts", 0.0, 0.5, 0.01, 0.01)
 
-# Telegram secrets
+# --------------------
+# TELEGRAM SECRETS
+# --------------------
 try:
     telegram_token = st.secrets["telegram"]["bot_token"]
     telegram_chat_id = st.secrets["telegram"]["chat_id"]
@@ -22,7 +32,9 @@ try:
 except:
     telegram_enabled = False
 
-# Helpers
+# --------------------
+# HELPER FUNCTIONS
+# --------------------
 def highlight_profit(val):
     color = 'lightgreen' if val > 0 else ''
     return f'background-color: {color}'
@@ -35,6 +47,10 @@ def send_telegram(message):
         except:
             pass
 
+def et_now():
+    """Return current time in Eastern Time (ET)"""
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
+
 # --------------------
 # FETCH POLYMARKET DATA & LOG
 # --------------------
@@ -44,11 +60,11 @@ try:
     url = "https://gamma-api.polymarket.com/markets"
     response = requests.get(url)
     markets = response.json()
-    last_fetch = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    last_fetch = et_now()
 
     # Log update info
     with log_container:
-        st.markdown(f"**[{last_fetch}] Markets fetched:** {len(markets)}")
+        st.markdown(f"**[{last_fetch} ET] Markets fetched:** {len(markets)}")
 
 except:
     markets = []
@@ -65,7 +81,9 @@ if not markets:
     with log_container:
         st.info("Showing sample markets because live API returned nothing.")
 
-# Process data & alerts
+# --------------------
+# PROCESS DATA & TELEGRAM ALERTS
+# --------------------
 data = []
 for market in markets:
     try:
@@ -81,24 +99,27 @@ for market in markets:
             "Trade Link": f"https://polymarket.com/event/{market.get('slug','')}"
         })
 
+        # Telegram alert if profit above threshold
         if profit >= min_profit_alert:
-            msg = f"Profitable trade!\nMarket: {market.get('question','Unknown')}\nProfit: {profit}\nTrade Link: https://polymarket.com/event/{market.get('slug','')}"
+            msg = f"📢 Profitable trade!\nMarket: {market.get('question','Unknown')}\nProfit: {profit}\nTime: {et_now()} ET\nTrade Link: https://polymarket.com/event/{market.get('slug','')}"
             send_telegram(msg)
 
-        # Add per-market log
+        # Log each market
         with log_container:
-            st.text(f"[{last_fetch}] Market: {market.get('question','Unknown')} | Profit: {profit}")
+            st.text(f"[{et_now()} ET] Market: {market.get('question','Unknown')} | Profit: {profit}")
 
     except:
         continue
 
-# Display dashboard table
+# Ensure DataFrame has correct columns
 columns = ["Market","Prices","Profit","Trade Amount","Trade Link"]
 df = pd.DataFrame(data, columns=columns)
 st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
 
-# Telegram test button
+# --------------------
+# TELEGRAM TEST BUTTON
+# --------------------
 if telegram_enabled:
     if st.button("Send Test Telegram Alert"):
-        send_telegram("✅ This is a test alert from your Polymarket dashboard!")
+        send_telegram(f"✅ This is a test alert from your Polymarket dashboard! Time: {et_now()} ET")
         st.success("Test message sent! Check your Telegram.")
