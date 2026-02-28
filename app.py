@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-import time
+from streamlit_autorefresh import st_autorefresh
 
 # --------------------
 # CONFIG
@@ -10,12 +10,18 @@ st.set_page_config(page_title="Polymarket Dashboard", layout="wide")
 st.title("📊 Polymarket Arbitrage Dashboard")
 
 # --------------------
+# AUTO-REFRESH
+# --------------------
+# Refresh every 10 seconds
+st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
+
+# --------------------
 # INPUTS
 # --------------------
 trade_amount = st.number_input("Enter trade amount ($)", min_value=1, value=50)
 telegram_alerts = st.checkbox("Enable Telegram Alerts")
 
-# If Telegram alerts are enabled, set token and chat ID
+# Telegram credentials (only if alerts enabled)
 if telegram_alerts:
     telegram_token = st.text_input("Telegram Bot Token", type="password")
     telegram_chat_id = st.text_input("Telegram Chat ID")
@@ -36,21 +42,14 @@ def send_telegram(message):
             pass
 
 # --------------------
-# MAIN LOOP
+# FETCH POLYMARKET DATA
 # --------------------
-# Using Streamlit auto-refresh: rerun every 10 seconds
-st_autorefresh = st.experimental_rerun
-st.experimental_set_query_params(refresh=int(time.time()))
-
-# Try fetching Polymarket data
 try:
     url = "https://gamma-api.polymarket.com/markets"
     response = requests.get(url)
     markets = response.json()
 except:
     markets = []
-
-data = []
 
 # Sample markets if API fails
 if not markets:
@@ -60,6 +59,7 @@ if not markets:
         {"question": "Ethereum > $2k by April", "outcomePrices": [0.48,0.33,0.18], "slug":"eth-april"},
     ]
 
+data = []
 for market in markets:
     try:
         prices = [float(p) for p in market.get("outcomePrices", [])]
@@ -74,7 +74,7 @@ for market in markets:
             "Trade Link": f"https://polymarket.com/event/{market.get('slug','')}"
         })
 
-        # Send Telegram alert if profit > 0
+        # Telegram alert if profitable
         if profit > 0:
             msg = f"Profitable trade!\nMarket: {market.get('question','Unknown')}\nProfit: {profit}\nTrade Link: https://polymarket.com/event/{market.get('slug','')}"
             send_telegram(msg)
@@ -90,6 +90,3 @@ if "Profit" in df.columns:
     st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
 else:
     st.dataframe(df)
-
-# Auto-refresh every 10 seconds
-st.experimental_rerun()
