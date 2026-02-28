@@ -61,15 +61,12 @@ try:
     response = requests.get(url)
     markets = response.json()
     last_fetch = et_now()
-
-    # Log update info
     with log_container:
         st.markdown(f"**[{last_fetch} ET] Markets fetched:** {len(markets)}")
-
-except:
+except Exception as e:
     markets = []
     with log_container:
-        st.warning("⚠️ Could not fetch markets from Polymarket API.")
+        st.warning(f"⚠️ Could not fetch markets from Polymarket API. Error: {e}")
 
 # Fallback sample markets
 if not markets:
@@ -87,31 +84,41 @@ if not markets:
 data = []
 for market in markets:
     try:
-        prices = [float(p) for p in market.get("outcomePrices", [])]
+        prices = market.get("outcomePrices")
+        if not prices:  # skip markets with no prices
+            continue
+        prices = [float(p) for p in prices]
         total = sum(prices)
         profit = round(max(0, 1 - total), 3)
 
+        question = market.get("question") or "Unknown"
+        slug = market.get("slug") or ""
+
         data.append({
-            "Market": market.get("question", "Unknown"),
+            "Market": question,
             "Prices": prices,
             "Profit": profit,
             "Trade Amount": trade_amount,
-            "Trade Link": f"https://polymarket.com/event/{market.get('slug','')}"
+            "Trade Link": f"https://polymarket.com/event/{slug}"
         })
 
         # Telegram alert if profit above threshold
         if profit >= min_profit_alert:
-            msg = f"📢 Profitable trade!\nMarket: {market.get('question','Unknown')}\nProfit: {profit}\nTime: {et_now()} ET\nTrade Link: https://polymarket.com/event/{market.get('slug','')}"
+            msg = f"📢 Profitable trade!\nMarket: {question}\nProfit: {profit}\nTime: {et_now()} ET\nTrade Link: https://polymarket.com/event/{slug}"
             send_telegram(msg)
 
         # Log each market
         with log_container:
-            st.text(f"[{et_now()} ET] Market: {market.get('question','Unknown')} | Profit: {profit}")
+            st.text(f"[{et_now()} ET] Market: {question} | Profit: {profit}")
 
-    except:
+    except Exception as e:
+        with log_container:
+            st.text(f"Error processing market: {e}")
         continue
 
-# Ensure DataFrame has correct columns
+# --------------------
+# DISPLAY DASHBOARD TABLE
+# --------------------
 columns = ["Market","Prices","Profit","Trade Amount","Trade Link"]
 df = pd.DataFrame(data, columns=columns)
 st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
