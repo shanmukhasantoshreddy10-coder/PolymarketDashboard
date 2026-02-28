@@ -3,7 +3,8 @@ import pandas as pd
 import requests
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
-from zoneinfo import ZoneInfo  # for ET timezone
+from zoneinfo import ZoneInfo
+import ast  # for parsing string lists
 
 # --------------------
 # CONFIG
@@ -54,7 +55,7 @@ def et_now():
 # --------------------
 # FETCH POLYMARKET DATA & LOG
 # --------------------
-log_container = st.container()  # Streamlit container for real-time log
+log_container = st.container()
 
 try:
     url = "https://gamma-api.polymarket.com/markets"
@@ -85,9 +86,22 @@ data = []
 for market in markets:
     try:
         prices = market.get("outcomePrices")
-        if not prices:  # skip markets with no prices
+        if not prices:
             continue
-        prices = [float(p) for p in prices]
+
+        # parse string list if needed
+        if isinstance(prices, str):
+            try:
+                prices = ast.literal_eval(prices)
+            except:
+                continue
+
+        # convert to float
+        try:
+            prices = [float(p) for p in prices]
+        except:
+            continue
+
         total = sum(prices)
         profit = round(max(0, 1 - total), 3)
 
