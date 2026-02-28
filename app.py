@@ -18,10 +18,32 @@ st.title("📊 Polymarket Arbitrage Dashboard")
 st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 
 # --------------------
-# INPUTS
+# SESSION STATE FOR PERSISTENCE
 # --------------------
-trade_amount = st.number_input("Enter trade amount ($)", min_value=1, value=50)
-min_profit_alert = st.slider("Minimum Profit for Telegram Alerts", 0.0, 0.5, 0.01, 0.01)
+if "trade_amount" not in st.session_state:
+    st.session_state.trade_amount = 50  # default trade amount
+if "min_profit_alert" not in st.session_state:
+    st.session_state.min_profit_alert = 0.01  # default min profit
+if "alerted_markets" not in st.session_state:
+    st.session_state.alerted_markets = set()  # to track alerts already sent
+
+# --------------------
+# INPUTS WITH SESSION_STATE
+# --------------------
+trade_amount = st.number_input(
+    "Enter trade amount ($)",
+    min_value=1,
+    value=st.session_state.trade_amount,
+    key="trade_amount"
+)
+
+min_profit_alert = st.slider(
+    "Minimum Profit for Telegram Alerts",
+    0.0, 0.5, 
+    value=st.session_state.min_profit_alert,
+    step=0.01,
+    key="min_profit_alert"
+)
 
 # --------------------
 # TELEGRAM SECRETS
@@ -32,12 +54,6 @@ try:
     telegram_enabled = True
 except:
     telegram_enabled = False
-
-# --------------------
-# SESSION STATE FOR ALERTS
-# --------------------
-if "alerted_markets" not in st.session_state:
-    st.session_state.alerted_markets = set()
 
 # --------------------
 # HELPER FUNCTIONS
