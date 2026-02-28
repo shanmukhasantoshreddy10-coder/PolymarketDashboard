@@ -34,6 +34,12 @@ except:
     telegram_enabled = False
 
 # --------------------
+# SESSION STATE FOR ALERTS
+# --------------------
+if "alerted_markets" not in st.session_state:
+    st.session_state.alerted_markets = set()
+
+# --------------------
 # HELPER FUNCTIONS
 # --------------------
 def highlight_profit(val):
@@ -72,9 +78,9 @@ except Exception as e:
 # Fallback sample markets
 if not markets:
     markets = [
-        {"question": "Bitcoin > $40k by March", "outcomePrices": [0.42,0.32,0.19], "slug":"btc-march"},
-        {"question": "Candidate A wins election", "outcomePrices": [0.45,0.30,0.20], "slug":"election"},
-        {"question": "Ethereum > $2k by April", "outcomePrices": [0.48,0.33,0.18], "slug":"eth-april"},
+        {"question": "Bitcoin > $40k by March", "outcomePrices": [0.42,0.32,0.19], "slug":"btc-march", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
+        {"question": "Candidate A wins election", "outcomePrices": [0.45,0.30,0.20], "slug":"election", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
+        {"question": "Ethereum > $2k by April", "outcomePrices": [0.48,0.33,0.18], "slug":"eth-april", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
     ]
     with log_container:
         st.info("Showing sample markets because live API returned nothing.")
@@ -85,9 +91,23 @@ if not markets:
 data = []
 for market in markets:
     try:
-        prices = market.get("outcomePrices")
-        if not prices:
+        # Skip expired/resolved markets
+        status = market.get("status", "open")
+        if status != "open":
             continue
+
+        # Skip markets with no prices or weird questions
+        prices = market.get("outcomePrices")
+        question = market.get("question") or ""
+        if not prices or "oops" in question.lower():
+            continue
+
+        # Skip old markets (before 2025)
+        created_at = market.get("createdAt")
+        if created_at:
+            market_time = datetime.fromisoformat(created_at.replace("Z","+00:00"))
+            if market_time.year < 2025:
+                continue
 
         # parse string list if needed
         if isinstance(prices, str):
@@ -104,26 +124,27 @@ for market in markets:
 
         total = sum(prices)
         profit = round(max(0, 1 - total), 3)
-
-        question = market.get("question") or "Unknown"
         slug = market.get("slug") or ""
+        market_key = slug  # unique key for alert tracking
 
         data.append({
             "Market": question,
             "Prices": prices,
             "Profit": profit,
             "Trade Amount": trade_amount,
-            "Trade Link": f"https://polymarket.com/event/{slug}"
+            "Trade Link": f"https://polymarket.com/event/{slug}",
+            "Status": status
         })
 
-        # Telegram alert if profit above threshold
-        if profit >= min_profit_alert:
+        # Telegram alert only once per market
+        if profit >= min_profit_alert and market_key not in st.session_state.alerted_markets:
             msg = f"📢 Profitable trade!\nMarket: {question}\nProfit: {profit}\nTime: {et_now()} ET\nTrade Link: https://polymarket.com/event/{slug}"
             send_telegram(msg)
+            st.session_state.alerted_markets.add(market_key)
 
         # Log each market
         with log_container:
-            st.text(f"[{et_now()} ET] Market: {question} | Profit: {profit}")
+            st.text(f"[{et_now()} ET] Market: {question} | Profit: {profit} | Status: {status}")
 
     except Exception as e:
         with log_container:
@@ -133,7 +154,7 @@ for market in markets:
 # --------------------
 # DISPLAY DASHBOARD TABLE
 # --------------------
-columns = ["Market","Prices","Profit","Trade Amount","Trade Link"]
+columns = ["Market","Prices","Profit","Trade Amount","Trade Link","Status"]
 df = pd.DataFrame(data, columns=columns)
 st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
 
