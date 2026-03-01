@@ -21,11 +21,11 @@ st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 # SESSION STATE FOR PERSISTENCE
 # --------------------
 if "trade_amount" not in st.session_state:
-    st.session_state.trade_amount = 50  # default trade amount
+    st.session_state.trade_amount = 50
 if "min_profit_alert" not in st.session_state:
-    st.session_state.min_profit_alert = 0.01  # default min profit
+    st.session_state.min_profit_alert = 0.01
 if "alerted_markets" not in st.session_state:
-    st.session_state.alerted_markets = set()  # to track alerts already sent
+    st.session_state.alerted_markets = set()
 
 # --------------------
 # INPUTS WITH SESSION_STATE
@@ -33,16 +33,14 @@ if "alerted_markets" not in st.session_state:
 trade_amount = st.number_input(
     "Enter trade amount ($)",
     min_value=1,
-    value=st.session_state.trade_amount,
-    key="trade_amount"
+    key="trade_amount"  # binds directly to session_state
 )
 
 min_profit_alert = st.slider(
     "Minimum Profit for Telegram Alerts",
-    0.0, 0.5, 
-    value=st.session_state.min_profit_alert,
+    0.0, 0.5,
     step=0.01,
-    key="min_profit_alert"
+    key="min_profit_alert"  # binds directly to session_state
 )
 
 # --------------------
@@ -91,7 +89,7 @@ except Exception as e:
     with log_container:
         st.warning(f"⚠️ Could not fetch markets from Polymarket API. Error: {e}")
 
-# Fallback sample markets
+# fallback sample markets
 if not markets:
     markets = [
         {"question": "Bitcoin > $40k by March", "outcomePrices": [0.42,0.32,0.19], "slug":"btc-march", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
@@ -141,7 +139,7 @@ for market in markets:
         total = sum(prices)
         profit = round(max(0, 1 - total), 3)
         slug = market.get("slug") or ""
-        market_key = slug  # unique key for alert tracking
+        market_key = slug
 
         data.append({
             "Market": question,
