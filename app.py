@@ -4,13 +4,13 @@ import requests
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import ast  # for parsing string lists
+import ast
 
 # --------------------
 # CONFIG
 # --------------------
 st.set_page_config(page_title="Polymarket Dashboard", layout="wide")
-st.title("📊 Polymarket Arbitrage Dashboard")
+st.title("📊 Polymarket Arbitrage Dashboard - Debug Version")
 
 # --------------------
 # AUTO-REFRESH
@@ -18,21 +18,20 @@ st.title("📊 Polymarket Arbitrage Dashboard")
 st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 
 # --------------------
-# SESSION STATE FOR PERSISTENCE
+# SESSION STATE
 # --------------------
 for key, default in [("trade_amount", 50), ("min_profit_alert", 0.01), ("alerted_markets", set())]:
     if key not in st.session_state:
         st.session_state[key] = default
 
 # --------------------
-# INPUTS WITH SESSION_STATE (number inputs)
+# INPUTS
 # --------------------
 trade_amount = st.number_input(
     "Enter trade amount ($)",
     min_value=1,
     key="trade_amount"
 )
-
 min_profit_alert = st.number_input(
     "Minimum profit for Telegram alerts",
     min_value=0.0,
@@ -42,7 +41,7 @@ min_profit_alert = st.number_input(
 )
 
 # --------------------
-# TELEGRAM SECRETS
+# TELEGRAM CONFIG
 # --------------------
 try:
     telegram_token = st.secrets["telegram"]["bot_token"]
@@ -51,27 +50,24 @@ try:
 except:
     telegram_enabled = False
 
-# --------------------
-# HELPER FUNCTIONS
-# --------------------
-def highlight_profit(val):
-    color = 'lightgreen' if val > 0 else ''
-    return f'background-color: {color}'
-
 def send_telegram(message):
     if telegram_enabled:
         url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
         try:
-            requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
-        except:
-            pass
+            resp = requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
+            if resp.status_code != 200:
+                st.warning(f"Telegram error: {resp.text}")
+        except Exception as e:
+            st.warning(f"Telegram failed: {e}")
 
 def et_now():
-    """Return current time in Eastern Time (ET)"""
     return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
 
+def highlight_profit(val):
+    return 'background-color: lightgreen' if val > 0 else ''
+
 # --------------------
-# FETCH POLYMARKET DATA & LOG
+# FETCH MARKETS
 # --------------------
 log_container = st.container()
 
@@ -79,63 +75,50 @@ try:
     url = "https://gamma-api.polymarket.com/markets"
     response = requests.get(url)
     markets = response.json()
-    last_fetch = et_now()
     with log_container:
-        st.markdown(f"**[{last_fetch} ET] Markets fetched:** {len(markets)}")
+        st.markdown(f"**[{et_now()} ET] Markets fetched: {len(markets)}**")
 except Exception as e:
     markets = []
-    with log_container:
-        st.warning(f"⚠️ Could not fetch markets from Polymarket API. Error: {e}")
-
-# fallback sample markets if API fails
-if not markets:
-    markets = [
-        {"question": "Bitcoin > $40k by March", "outcomePrices": [0.42,0.32,0.19], "slug":"btc-march", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
-        {"question": "Candidate A wins election", "outcomePrices": [0.45,0.30,0.20], "slug":"election", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
-        {"question": "Ethereum > $2k by April", "outcomePrices": [0.48,0.33,0.18], "slug":"eth-april", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
-    ]
-    with log_container:
-        st.info("Showing sample markets because live API returned nothing.")
+    st.warning(f"⚠️ Could not fetch markets: {e}")
 
 # --------------------
-# PROCESS DATA & TELEGRAM ALERTS
+# PROCESS MARKETS & DEBUG LOGS
 # --------------------
 data = []
+
 for market in markets:
     try:
-        # Only open markets
         status = market.get("status", "open")
-        if status != "open":
-            continue
-
-        # Skip invalid markets
-        prices = market.get("outcomePrices")
         question = market.get("question") or ""
-        if not prices or "oops" in question.lower():
-            continue
+        prices = market.get("outcomePrices")
 
-        # Skip old markets
+        # Skip invalid or old markets
         created_at = market.get("createdAt")
+        if status != "open":
+            st.text(f"Skipped (not open): {question}")
+            continue
+        if not prices or "oops" in question.lower():
+            st.text(f"Skipped (invalid prices): {question}")
+            continue
         if created_at:
             market_time = datetime.fromisoformat(created_at.replace("Z","+00:00"))
             if market_time.year < 2025:
+                st.text(f"Skipped (old market): {question}")
                 continue
 
-        # parse string list if needed
         if isinstance(prices, str):
             try:
                 prices = ast.literal_eval(prices)
             except:
+                st.text(f"Skipped (cannot parse prices): {question}")
                 continue
-
-        # convert to float
         try:
             prices = [float(p) for p in prices]
         except:
+            st.text(f"Skipped (non-numeric prices): {question}")
             continue
 
-        total = sum(prices)
-        profit = round(max(0, 1 - total), 3)
+        profit = round(max(0, 1 - sum(prices)), 3)
         slug = market.get("slug") or ""
         market_key = slug
 
@@ -148,30 +131,29 @@ for market in markets:
             "Status": status
         })
 
-        # Telegram alert only once per market
+        # Debug Telegram alerts
         if profit >= min_profit_alert and market_key not in st.session_state.alerted_markets:
-            msg = f"📢 Profitable trade!\nMarket: {question}\nProfit: {profit}\nTime: {et_now()} ET\nTrade Link: https://polymarket.com/event/{slug}"
-            send_telegram(msg)
+            send_telegram(f"📢 Profitable trade!\nMarket: {question}\nProfit: {profit}\nTime: {et_now()} ET\nLink: https://polymarket.com/event/{slug}")
             st.session_state.alerted_markets.add(market_key)
-
-        # Log each market
-        with log_container:
-            st.text(f"[{et_now()} ET] Market: {question} | Profit: {profit} | Status: {status}")
+            st.success(f"Alert sent for: {question}")
+        else:
+            st.text(f"No alert for {question}. Profit: {profit}, Threshold: {min_profit_alert}, Already alerted: {market_key in st.session_state.alerted_markets}")
 
     except Exception as e:
-        with log_container:
-            st.text(f"Error processing market: {e}")
+        st.text(f"Error processing market {question}: {e}")
         continue
 
 # --------------------
-# DISPLAY DASHBOARD TABLE
+# DISPLAY TABLE
 # --------------------
-columns = ["Market","Prices","Profit","Trade Amount","Trade Link","Status"]
-df = pd.DataFrame(data, columns=columns)
-st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
+if data:
+    df = pd.DataFrame(data)
+    st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
+else:
+    st.info("No valid open markets found.")
 
 # --------------------
-# TELEGRAM TEST BUTTON
+# TEST BUTTON
 # --------------------
 if telegram_enabled:
     if st.button("Send Test Telegram Alert"):
