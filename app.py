@@ -20,27 +20,25 @@ st_autorefresh(interval=10000, limit=None, key="polymarket_autorefresh")
 # --------------------
 # SESSION STATE FOR PERSISTENCE
 # --------------------
-if "trade_amount" not in st.session_state:
-    st.session_state.trade_amount = 50
-if "min_profit_alert" not in st.session_state:
-    st.session_state.min_profit_alert = 0.01
-if "alerted_markets" not in st.session_state:
-    st.session_state.alerted_markets = set()
+for key, default in [("trade_amount", 50), ("min_profit_alert", 0.01), ("alerted_markets", set())]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # --------------------
-# INPUTS WITH SESSION_STATE
+# INPUTS WITH SESSION_STATE (number inputs)
 # --------------------
 trade_amount = st.number_input(
     "Enter trade amount ($)",
     min_value=1,
-    key="trade_amount"  # binds directly to session_state
+    key="trade_amount"
 )
 
-min_profit_alert = st.slider(
-    "Minimum Profit for Telegram Alerts",
-    0.0, 0.5,
+min_profit_alert = st.number_input(
+    "Minimum profit for Telegram alerts",
+    min_value=0.0,
+    max_value=1.0,
     step=0.01,
-    key="min_profit_alert"  # binds directly to session_state
+    key="min_profit_alert"
 )
 
 # --------------------
@@ -89,7 +87,7 @@ except Exception as e:
     with log_container:
         st.warning(f"⚠️ Could not fetch markets from Polymarket API. Error: {e}")
 
-# fallback sample markets
+# fallback sample markets if API fails
 if not markets:
     markets = [
         {"question": "Bitcoin > $40k by March", "outcomePrices": [0.42,0.32,0.19], "slug":"btc-march", "status":"open", "createdAt":"2026-01-01T12:00:00Z"},
@@ -105,18 +103,18 @@ if not markets:
 data = []
 for market in markets:
     try:
-        # Skip expired/resolved markets
+        # Only open markets
         status = market.get("status", "open")
         if status != "open":
             continue
 
-        # Skip markets with no prices or weird questions
+        # Skip invalid markets
         prices = market.get("outcomePrices")
         question = market.get("question") or ""
         if not prices or "oops" in question.lower():
             continue
 
-        # Skip old markets (before 2025)
+        # Skip old markets
         created_at = market.get("createdAt")
         if created_at:
             market_time = datetime.fromisoformat(created_at.replace("Z","+00:00"))
