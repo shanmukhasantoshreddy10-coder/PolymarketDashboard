@@ -59,24 +59,13 @@ def highlight_profit(val):
 # --------------------
 # FETCH MARKETS
 # --------------------
-log_container = st.container()
-
 try:
     url = "https://gamma-api.polymarket.com/markets"
     response = requests.get(url)
     markets = response.json()
-    with log_container:
-        st.markdown(f"**[{et_now()} ET] Markets fetched: {len(markets)}**")
 except Exception as e:
     markets = []
     st.warning(f"⚠️ Could not fetch markets: {e}")
-
-# --------------------
-# DEBUG PANEL: all market timestamps
-# --------------------
-st.subheader("All fetched markets (timestamps and status)")
-for m in markets:
-    st.text(f"{m.get('question')} | Created: {m.get('createdAt')} | Status: {m.get('status')}")
 
 # --------------------
 # PROCESS MARKETS & TELEGRAM ALERTS
@@ -92,34 +81,24 @@ for market in markets:
         slug = market.get("slug") or ""
         market_key = slug
 
-        # Skip really old markets (<2023)
+        # Only open markets and recent ones
+        if status != "open":
+            continue
         if created_at:
             market_time = datetime.fromisoformat(created_at.replace("Z","+00:00"))
             if market_time.year < 2023:
-                st.text(f"Skipped (too old market): {question}")
                 continue
-
-        # Skip non-open markets
-        if status != "open":
-            st.text(f"Skipped (not open): {question}")
+        # Skip invalid prices
+        if not prices or "oops" in question.lower():
             continue
-
-        # Parse prices safely
         if isinstance(prices, str):
             try:
                 prices = ast.literal_eval(prices)
             except:
-                st.text(f"Skipped (cannot parse prices): {question}")
                 continue
         try:
             prices = [float(p) for p in prices]
         except:
-            st.text(f"Skipped (non-numeric prices): {question}")
-            continue
-
-        # Skip markets with "oops" in question
-        if "oops" in question.lower():
-            st.text(f"Skipped (invalid market): {question}")
             continue
 
         # Calculate profit
@@ -138,23 +117,19 @@ for market in markets:
         if profit >= min_profit_alert and market_key not in st.session_state.alerted_markets:
             send_telegram(f"📢 Profitable trade!\nMarket: {question}\nProfit: {profit}\nTime: {et_now()} ET\nLink: https://polymarket.com/event/{slug}")
             st.session_state.alerted_markets.add(market_key)
-            st.success(f"Alert sent for: {question}")
-        else:
-            st.text(f"No alert for {question}. Profit: {profit}, Threshold: {min_profit_alert}, Already alerted: {market_key in st.session_state.alerted_markets}")
 
-    except Exception as e:
-        st.text(f"Error processing market {question}: {e}")
+    except:
         continue
 
 # --------------------
 # DISPLAY TABLE
 # --------------------
 st.subheader("Valid live markets")
-if data:
-    df = pd.DataFrame(data)
-    st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
-else:
+df = pd.DataFrame(data)
+if df.empty:
     st.info("No valid open markets found.")
+else:
+    st.dataframe(df.style.applymap(highlight_profit, subset=['Profit']))
 
 # --------------------
 # TEST TELEGRAM BUTTON
